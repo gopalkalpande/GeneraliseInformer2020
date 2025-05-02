@@ -42,7 +42,7 @@ The self-attention scores form a long-tail distribution, where the "active" quer
 - torch == 1.8.0
 
 Dependencies can be installed using the following command:
-```bash
+```bash 
 pip install -r requirements.txt
 ```
 
