@@ -3,31 +3,36 @@ data:
   train_path: "inputData/train/train_data.csv"
   test_path: "inputData/test/test_data.csv"
   inference_path: "inputData/inference/inference_data.csv"
-  model_save_path: "modelData/trained_model.pth"
+  timestamp: "20250607_1345"  # This will be replaced with actual timestamp during runtime
+  model_save_path: "modelData/model_{{timestamp}}.pth"
 
 # Model parameters
 model:
-  input_size: 10  # Number of features
+  input_size: 8  # Number of features in California Housing dataset
   hidden_size: 64
   num_layers: 2
   dropout: 0.1
   learning_rate: 0.001
-  weight_decay: 1e-5
+  weight_decay: 0.00001 # 1e-5
 
 # Training parameters
 training:
-  batch_size: 32
-  num_epochs: 100
-  early_stopping_patience: 10
+  batch_size: 64
+  num_epochs: 200
+  early_stopping_patience: 30
   validation_split: 0.2
-  target_column: "target"  # Name of the target column in your CSV
-  feature_columns:  # List of feature columns to use
-    - "feature1"
-    - "feature2"
-    - "feature3"
-    # Add more features as needed
+  target_column: "target"
+  feature_columns:  # California Housing dataset features
+    - "MedInc"
+    - "HouseAge"
+    - "AveRooms"
+    - "AveBedrms"
+    - "Population"
+    - "AveOccup"
+    - "Latitude"
+    - "Longitude"
 
 # Inference parameters
 inference:
   batch_size: 32
-  output_path: "inputData/inference/predictions.csv" 
+  output_path: "inputData/inference/predictions_{{timestamp}}.csv" 

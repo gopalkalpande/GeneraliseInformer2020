@@ -4,16 +4,19 @@ import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import os
+from train import TabularModel, TabularDataset
+from sklearn.metrics import mean_squared_error, r2_score
 
 class TabularDataset(Dataset):
-    def __init__(self, features):
+    def __init__(self, features, targets):
         self.features = torch.FloatTensor(features)
+        self.targets = torch.FloatTensor(targets)
 
     def __len__(self):
         return len(self.features)
 
     def __getitem__(self, idx):
-        return self.features[idx]
+        return self.features[idx], self.targets[idx]
 
 class TabularModel(torch.nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, dropout):
@@ -39,61 +42,94 @@ class TabularModel(torch.nn.Module):
     def forward(self, x):
         return self.model(x)
 
-def load_model(model_path):
-    checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
-    config = checkpoint['config']
+def load_model(model_path, config):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
+    # Initialize model
     model = TabularModel(
         input_size=config['model']['input_size'],
         hidden_size=config['model']['hidden_size'],
         num_layers=config['model']['num_layers'],
         dropout=config['model']['dropout']
-    )
+    ).to(device)
     
+    # Load saved model
+    checkpoint = torch.load(model_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
+    scaler = checkpoint['scaler']
+    
+    return model, scaler, device
+
+def evaluate_model(model, data_loader, device):
     model.eval()
-    
-    return model, checkpoint['scaler'], config
-
-def perform_inference(config):
-    # Load model and scaler
-    model, scaler, model_config = load_model(config['data']['model_save_path'])
-    
-    # Load and preprocess data
-    df = pd.read_csv(config['data']['inference_path'])
-    features = df[config['training']['feature_columns']].values
-    
-    # Scale features
-    features = scaler.transform(features)
-    
-    # Create dataset and dataloader
-    dataset = TabularDataset(features)
-    dataloader = DataLoader(
-        dataset,
-        batch_size=config['inference']['batch_size'],
-        shuffle=False
-    )
-    
-    # Perform inference
     predictions = []
-    with torch.no_grad():
-        for batch in dataloader:
-            outputs = model(batch)
-            predictions.extend(outputs.numpy())
+    actuals = []
     
-    # Save predictions
+    with torch.no_grad():
+        for features, targets in data_loader:
+            features = features.to(device)
+            outputs = model(features)
+            predictions.extend(outputs.cpu().numpy())
+            actuals.extend(targets.numpy())
+    
     predictions = np.array(predictions).flatten()
-    df['predictions'] = predictions
-    df.to_csv(config['inference']['output_path'], index=False)
-    print(f"Predictions saved to {config['inference']['output_path']}")
+    actuals = np.array(actuals)
+    
+    mse = mean_squared_error(actuals, predictions)
+    r2 = r2_score(actuals, predictions)
+    
+    return mse, r2, predictions
 
-if __name__ == "__main__":
+def main():
     # Load configuration
     with open('input_parameters.yml', 'r') as f:
         config = yaml.safe_load(f)
     
-    # Create output directory if it doesn't exist
-    os.makedirs(os.path.dirname(config['inference']['output_path']), exist_ok=True)
+    # Get timestamp from config and update paths
+    timestamp = config['data']['timestamp']
+    model_path = config['data']['model_save_path'].replace('{{timestamp}}', timestamp)
+    output_path = config['inference']['output_path'].replace('{{timestamp}}', timestamp)
     
-    # Perform inference
-    perform_inference(config) 
+    # Create output directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    # Load model and scaler
+    model, scaler, device = load_model(model_path, config)
+    
+    # Evaluate on test set
+    test_df = pd.read_csv(config['data']['test_path'])
+    X_test = test_df[config['training']['feature_columns']].values
+    y_test = test_df[config['training']['target_column']].values
+    
+    X_test_scaled = scaler.transform(X_test)
+    test_dataset = TabularDataset(X_test_scaled, y_test)
+    test_loader = DataLoader(test_dataset, batch_size=config['inference']['batch_size'], shuffle=False)
+    
+    test_mse, test_r2, test_predictions = evaluate_model(model, test_loader, device)
+    
+    print("\nTest Set Results:")
+    print(f"Mean Squared Error: {test_mse:.4f}")
+    print(f"R² Score: {test_r2:.4f}")
+    
+    # Evaluate on inference set
+    inference_df = pd.read_csv(config['data']['inference_path'])
+    X_inf = inference_df[config['training']['feature_columns']].values
+    y_inf = inference_df[config['training']['target_column']].values
+    
+    X_inf_scaled = scaler.transform(X_inf)
+    inference_dataset = TabularDataset(X_inf_scaled, y_inf)
+    inference_loader = DataLoader(inference_dataset, batch_size=config['inference']['batch_size'], shuffle=False)
+    
+    inf_mse, inf_r2, inf_predictions = evaluate_model(model, inference_loader, device)
+    
+    print("\nInference Set Results:")
+    print(f"Mean Squared Error: {inf_mse:.4f}")
+    print(f"R² Score: {inf_r2:.4f}")
+    
+    # Save predictions
+    inference_df['predicted_target'] = inf_predictions
+    inference_df.to_csv(output_path, index=False)
+    print(f"\nPredictions saved to {output_path}")
+
+if __name__ == "__main__":
+    main() 

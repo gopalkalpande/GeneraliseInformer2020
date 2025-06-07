@@ -147,6 +147,11 @@ if __name__ == "__main__":
     with open('input_parameters.yml', 'r') as f:
         config = yaml.safe_load(f)
     
+    # Use the timestamp as provided in the YAML file
+    timestamp = config['data']['timestamp']
+    config['data']['model_save_path'] = config['data']['model_save_path'].replace('{{timestamp}}', timestamp)
+    config['inference']['output_path'] = config['inference']['output_path'].replace('{{timestamp}}', timestamp)
+    
     # Create necessary directories
     os.makedirs(os.path.dirname(config['data']['model_save_path']), exist_ok=True)
     
