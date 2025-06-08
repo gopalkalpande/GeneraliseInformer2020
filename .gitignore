@@ -1,6 +1,9 @@
 # Data files
 *.csv
 data/*.csv
+data/train.csv
+data/test.csv
+data/val.csv
 
 # Model checkpoints
 *.pth
