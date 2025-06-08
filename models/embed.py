@@ -104,6 +104,22 @@ class DataEmbedding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, x_mark):
-        x = self.value_embedding(x) + self.position_embedding(x) + self.temporal_embedding(x_mark)
+        # Ensure inputs are contiguous
+        x = x.contiguous()
+        x_mark = x_mark.contiguous()
+        
+        # Get embeddings
+        value_emb = self.value_embedding(x)
+        pos_emb = self.position_embedding(x)
+        temp_emb = self.temporal_embedding(x_mark)
+        
+        # Ensure all embeddings are contiguous
+        value_emb = value_emb.contiguous()
+        pos_emb = pos_emb.contiguous()
+        temp_emb = temp_emb.contiguous()
+        
+        # Combine embeddings
+        x = value_emb + pos_emb + temp_emb
+        x = x.contiguous()
         
         return self.dropout(x)

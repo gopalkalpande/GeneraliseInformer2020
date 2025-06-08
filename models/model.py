@@ -22,8 +22,10 @@ class Informer(nn.Module):
         # Encoding
         self.enc_embedding = DataEmbedding(enc_in, d_model, embed, freq, dropout)
         self.dec_embedding = DataEmbedding(dec_in, d_model, embed, freq, dropout)
+        
         # Attention
         Attn = ProbAttention if attn=='prob' else FullAttention
+        
         # Encoder
         self.encoder = Encoder(
             [
@@ -43,6 +45,7 @@ class Informer(nn.Module):
             ] if distil else None,
             norm_layer=torch.nn.LayerNorm(d_model)
         )
+        
         # Decoder
         self.decoder = Decoder(
             [
@@ -60,21 +63,33 @@ class Informer(nn.Module):
             ],
             norm_layer=torch.nn.LayerNorm(d_model)
         )
-        # self.end_conv1 = nn.Conv1d(in_channels=label_len+out_len, out_channels=out_len, kernel_size=1, bias=True)
-        # self.end_conv2 = nn.Conv1d(in_channels=d_model, out_channels=c_out, kernel_size=1, bias=True)
+        
         self.projection = nn.Linear(d_model, c_out, bias=True)
         
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, 
                 enc_self_mask=None, dec_self_mask=None, dec_enc_mask=None):
-        enc_out = self.enc_embedding(x_enc, x_mark_enc)
-        enc_out, attns = self.encoder(enc_out, attn_mask=enc_self_mask)
-
-        dec_out = self.dec_embedding(x_dec, x_mark_dec)
-        dec_out = self.decoder(dec_out, enc_out, x_mask=dec_self_mask, cross_mask=dec_enc_mask)
-        dec_out = self.projection(dec_out)
+        # Ensure inputs are contiguous
+        x_enc = x_enc.contiguous()
+        x_mark_enc = x_mark_enc.contiguous()
+        x_dec = x_dec.contiguous()
+        x_mark_dec = x_mark_dec.contiguous()
         
-        # dec_out = self.end_conv1(dec_out)
-        # dec_out = self.end_conv2(dec_out.transpose(2,1)).transpose(1,2)
+        # Encoder
+        enc_out = self.enc_embedding(x_enc, x_mark_enc)
+        enc_out = enc_out.contiguous()
+        enc_out, attns = self.encoder(enc_out, attn_mask=enc_self_mask)
+        enc_out = enc_out.contiguous()
+
+        # Decoder
+        dec_out = self.dec_embedding(x_dec, x_mark_dec)
+        dec_out = dec_out.contiguous()
+        dec_out = self.decoder(dec_out, enc_out, x_mask=dec_self_mask, cross_mask=dec_enc_mask)
+        dec_out = dec_out.contiguous()
+        
+        # Projection
+        dec_out = self.projection(dec_out)
+        dec_out = dec_out.contiguous()
+        
         if self.output_attention:
             return dec_out[:,-self.pred_len:,:], attns
         else:

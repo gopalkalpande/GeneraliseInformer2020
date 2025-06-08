@@ -20,6 +20,11 @@ class FullAttention(nn.Module):
         _, S, _, D = values.shape
         scale = self.scale or 1./sqrt(E)
 
+        # Ensure tensors are contiguous
+        queries = queries.contiguous()
+        keys = keys.contiguous()
+        values = values.contiguous()
+
         scores = torch.einsum("blhe,bshe->bhls", queries, keys)
         if self.mask_flag:
             if attn_mask is None:
@@ -48,6 +53,10 @@ class ProbAttention(nn.Module):
         # Q [B, H, L, D]
         B, H, L_K, E = K.shape
         _, _, L_Q, _ = Q.shape
+
+        # Ensure tensors are contiguous
+        Q = Q.contiguous()
+        K = K.contiguous()
 
         # calculate the sampled Q_K
         K_expand = K.unsqueeze(-3).expand(B, H, L_Q, L_K, E)
@@ -101,9 +110,10 @@ class ProbAttention(nn.Module):
         B, L_Q, H, D = queries.shape
         _, L_K, _, _ = keys.shape
 
-        queries = queries.transpose(2,1)
-        keys = keys.transpose(2,1)
-        values = values.transpose(2,1)
+        # Ensure tensors are contiguous before transpose
+        queries = queries.contiguous().transpose(2,1)
+        keys = keys.contiguous().transpose(2,1)
+        values = values.contiguous().transpose(2,1)
 
         U_part = self.factor * np.ceil(np.log(L_K)).astype('int').item() # c*ln(L_k)
         u = self.factor * np.ceil(np.log(L_Q)).astype('int').item() # c*ln(L_q) 
@@ -146,9 +156,10 @@ class AttentionLayer(nn.Module):
         _, S, _ = keys.shape
         H = self.n_heads
 
-        queries = self.query_projection(queries).view(B, L, H, -1)
-        keys = self.key_projection(keys).view(B, S, H, -1)
-        values = self.value_projection(values).view(B, S, H, -1)
+        # Ensure tensors are contiguous before reshaping
+        queries = self.query_projection(queries).contiguous().reshape(B, L, H, -1)
+        keys = self.key_projection(keys).contiguous().reshape(B, S, H, -1)
+        values = self.value_projection(values).contiguous().reshape(B, S, H, -1)
 
         out, attn = self.inner_attention(
             queries,
@@ -158,6 +169,6 @@ class AttentionLayer(nn.Module):
         )
         if self.mix:
             out = out.transpose(2,1).contiguous()
-        out = out.view(B, L, -1)
+        out = out.reshape(B, L, -1)
 
         return self.out_projection(out), attn

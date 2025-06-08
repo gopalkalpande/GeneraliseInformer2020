@@ -81,6 +81,26 @@ def train_model(config):
     print("STARTING TRAINING PROCESS")
     print("="*50)
     
+    # Check device availability
+    print("\nChecking device availability...")
+    if torch.backends.mps.is_available():
+        print("✓ Apple Silicon (MPS) is available!")
+        device = torch.device('mps')
+        # Don't set default tensor type for MPS
+    elif torch.cuda.is_available():
+        print("✓ CUDA is available!")
+        print(f"  - CUDA Device: {torch.cuda.get_device_name(0)}")
+        print(f"  - CUDA Version: {torch.version.cuda}")
+        print(f"  - Number of GPUs: {torch.cuda.device_count()}")
+        device = torch.device('cuda')
+        torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    else:
+        print("! No GPU acceleration available. Using CPU instead.")
+        device = torch.device('cpu')
+        torch.set_default_tensor_type('torch.FloatTensor')
+    
+    print(f"\nUsing device: {device}")
+    
     print("\n1. Loading and preprocessing data...")
     df = pd.read_csv(config['data']['train_path'])
     print(f"✓ Data loaded successfully. Shape: {df.shape}")
@@ -125,33 +145,44 @@ def train_model(config):
     print(f"  - Validation samples: {len(val_dataset)}")
     
     print("\n5. Creating dataloaders...")
+    # Configure DataLoader based on device
+    pin_memory = device.type == 'cuda'  # Only use pin_memory for CUDA
     train_loader = DataLoader(
         train_dataset,
         batch_size=16,
         shuffle=True,
-        num_workers=0
+        num_workers=0,
+        pin_memory=pin_memory
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=16,
         shuffle=False,
-        num_workers=0
+        num_workers=0,
+        pin_memory=pin_memory
     )
     print(f"✓ Dataloaders created successfully")
     print(f"  - Training batches: {len(train_loader)}")
     print(f"  - Validation batches: {len(val_loader)}")
     
     print("\n6. Initializing model...")
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
     model = create_informer_model(config, device).to(device)
+    
+    # Configure device-specific optimizations
+    if device.type == 'cuda':
+        torch.backends.cudnn.benchmark = True
+    elif device.type == 'mps':
+        # Enable Metal performance optimizations if available
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            torch.backends.mps.enable_fallback_to_cpu = True
+    
     print("Model architecture:")
     print(model)
     print(f"✓ Model initialized successfully")
     
     print("\n7. Setting up optimizer and loss function...")
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    criterion = nn.MSELoss()
+    criterion = nn.MSELoss().to(device)
     print(f"✓ Optimizer and loss function configured")
     
     print("\n8. Starting training loop...")
@@ -167,22 +198,24 @@ def train_model(config):
             train_loss = 0
             print("\nTraining phase:")
             for batch_idx, batch in enumerate(train_loader):
-                if batch_idx % 10 == 0:  # Print more frequently
+                if batch_idx % 10 == 0:
                     print(f"  Processing batch {batch_idx}/{len(train_loader)}")
                 
+                # Move data to device
                 x_enc = batch['x_enc'].to(device)
                 x_mark_enc = batch['x_mark_enc'].to(device)
                 x_dec = batch['x_dec'].to(device)
                 x_mark_dec = batch['x_mark_dec'].to(device)
                 y = batch['y'].to(device)
                 
-                if batch_idx == 0:  # Print shapes for first batch
+                if batch_idx == 0:
                     print(f"\n  Input shapes:")
                     print(f"  - x_enc: {x_enc.shape}")
                     print(f"  - x_mark_enc: {x_mark_enc.shape}")
                     print(f"  - x_dec: {x_dec.shape}")
                     print(f"  - x_mark_dec: {x_mark_dec.shape}")
                     print(f"  - y: {y.shape}")
+                    print(f"  - Device: {x_enc.device}")
                 
                 optimizer.zero_grad()
                 outputs = model(x_enc, x_mark_enc, x_dec, x_mark_dec)
@@ -206,6 +239,7 @@ def train_model(config):
                     if batch_idx % 10 == 0:
                         print(f"  Processing validation batch {batch_idx}/{len(val_loader)}")
                     
+                    # Move data to device
                     x_enc = batch['x_enc'].to(device)
                     x_mark_enc = batch['x_mark_enc'].to(device)
                     x_dec = batch['x_dec'].to(device)
@@ -262,6 +296,14 @@ if __name__ == "__main__":
     print("\n" + "="*50)
     print("INITIALIZING TRAINING SCRIPT")
     print("="*50)
+    
+    # Set random seeds for reproducibility
+    torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(42)
+    if torch.backends.mps.is_available():
+        # Set MPS-specific seed if available
+        torch.mps.manual_seed(42)
     
     print("\n1. Loading configuration...")
     with open('input_parameters.yml', 'r') as f:
