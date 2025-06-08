@@ -147,12 +147,14 @@ def train_model(config):
     print("\n5. Creating dataloaders...")
     # Configure DataLoader based on device
     pin_memory = device.type == 'cuda'  # Only use pin_memory for CUDA
+    generator = torch.Generator(device=device)  # Create generator on the correct device
     train_loader = DataLoader(
         train_dataset,
         batch_size=16,
         shuffle=True,
         num_workers=0,
-        pin_memory=pin_memory
+        pin_memory=pin_memory,
+        generator=generator
     )
     val_loader = DataLoader(
         val_dataset,
@@ -256,7 +258,19 @@ def train_model(config):
             print(f"  Training Loss: {avg_train_loss:.4f}")
             print(f"  Validation Loss: {avg_val_loss:.4f}")
             
-            # Early stopping
+            # Save checkpoint for every epoch
+            checkpoint_path = config['data']['model_save_path'].replace('.pth', f'_epoch_{epoch+1}.pth')
+            print(f"\nSaving epoch checkpoint...")
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'config': config,
+                'epoch': epoch,
+                'train_loss': avg_train_loss,
+                'val_loss': avg_val_loss
+            }, checkpoint_path)
+            print(f"✓ Checkpoint saved to {checkpoint_path}")
+            
+            # Early stopping and best model save
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 patience_counter = 0
@@ -267,7 +281,7 @@ def train_model(config):
                     'epoch': epoch,
                     'best_val_loss': best_val_loss
                 }, config['data']['model_save_path'])
-                print(f"✓ Model saved to {config['data']['model_save_path']}")
+                print(f"✓ Best model saved to {config['data']['model_save_path']}")
             else:
                 patience_counter += 1
                 print(f"\nNo improvement in validation loss. Patience: {patience_counter}/{config['training']['early_stopping_patience']}")

@@ -34,7 +34,7 @@ model:
 
 # Training parameters
 training:
-  batch_size: 32
+  batch_size: 10240
   num_epochs: 100
   validation_split: 0.1
   early_stopping_patience: 10
